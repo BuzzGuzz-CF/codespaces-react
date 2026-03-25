@@ -373,7 +373,7 @@ function App() {
               <button className="btn-back" onClick={goBackToLanding}>← Back to Home</button>
             </div>
             {/* Suggestion Banner */}
-            {suggestedPark && activeTab === 'parking' && (
+            {suggestedPark && activeTab === 'parking' && suggestedPark.name && (
               <div className="suggestion-banner standout-banner">
                 <span className="suggestion-icon">✨</span>
                 <span className="suggestion-text">
