@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Supabase configuration - using hardcoded values since the public key is meant to be public
-const supabaseUrl = 'https://vrgtuaowdhgmxzrgvepkb.supabase.co';
+const supabaseUrl = 'https://vrguaowdhgmxzrgvepkb.supabase.co';
 const supabaseKey = 'sb_publishable_Jf8bP4EzChTvIpXqvmKm-Q_x3gT5Trg';
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
