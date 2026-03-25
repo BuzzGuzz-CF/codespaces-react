@@ -373,11 +373,12 @@ function App() {
             </div>
             
             {/* Suggestion Banner */}
+
             {suggestedPark && activeTab === 'parking' && (
               <div className="suggestion-banner">
                 <span className="suggestion-icon">✨</span>
                 <span className="suggestion-text">
-                  We recommend <strong>{suggestedPark.name}</strong> - it has the most available spaces ({suggestedPark.availableSpaces}/{suggestedPark.totalSpaces})
+                  We recommend <strong>{suggestedPark.name}</strong> - it has the most available spaces ({suggestedPark.available_spaces}/{suggestedPark.total_spaces})
                 </span>
               </div>
             )}
@@ -403,7 +404,7 @@ function App() {
           <div className="tab-content">
             <p className="subtitle">Track and manage available parking spaces</p>
             <div className="parks-container">
-              {carParks.map(park => {
+              {[...carParks].sort((a, b) => a.id - b.id).map(park => {
                 const occupancyPercentage = ((park.total_spaces - park.available_spaces) / park.total_spaces) * 100;
                 const isFull = park.available_spaces === 0;
                 
