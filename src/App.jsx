@@ -75,6 +75,9 @@ function App() {
 
   // Load car parks and subscriptions
   useEffect(() => {
+    let channel = null;
+    let pollInterval = null;
+
     const loadData = async () => {
       try {
         // Fetch car parks
@@ -114,7 +117,7 @@ function App() {
         console.log('Data loaded successfully. Car parks:', parks, 'Bookings:', bookings);
 
         // Subscribe to real-time updates using the correct Supabase v2 API
-        const channel = supabase.channel('schema-db-changes')
+        channel = supabase.channel('schema-db-changes')
           .on(
             'postgres_changes',
             {
@@ -147,9 +150,22 @@ function App() {
             console.log('Subscription status:', status);
           });
 
-        return () => {
-          supabase.removeChannel(channel);
-        };
+        // Polling fallback: refresh data every 3 seconds if real-time isn't working
+        pollInterval = setInterval(async () => {
+          try {
+            const { data: bookings } = await supabase
+              .from('charging_bookings')
+              .select('*');
+            setChargingBookings(bookings || []);
+
+            const { data: parks } = await supabase
+              .from('car_parks')
+              .select('*');
+            setCarParks(parks || []);
+          } catch (err) {
+            console.log('Polling error (non-critical):', err);
+          }
+        }, 3000);
       } catch (error) {
         console.error('Error loading data:', error);
         setLoading(false);
@@ -157,6 +173,11 @@ function App() {
     };
 
     loadData();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+      if (pollInterval) clearInterval(pollInterval);
+    };
   }, []);
 
   // Find the best car park based on availability
