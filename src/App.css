@@ -185,6 +185,7 @@
 }
 
 /* Suggestion Banner */
+
 .suggestion-banner {
   background: linear-gradient(135deg, rgba(253, 223, 39, 0.2) 0%, rgba(253, 223, 39, 0.2) 100%);
   border: 2px solid #FDDF27;
@@ -197,6 +198,19 @@
   animation: slideInDown 0.5s ease;
   color: #FDDF27;
   font-weight: 500;
+}
+
+/* Standout style for the suggestion banner */
+.standout-banner {
+  background: linear-gradient(90deg, #FDDF27 0%, #ffe066 100%);
+  color: #035BBC !important;
+  border: 3px solid #035BBC;
+  box-shadow: 0 4px 24px 0 rgba(253, 223, 39, 0.25), 0 1.5px 6px 0 rgba(3, 91, 188, 0.12);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-shadow: 1px 1px 0 #fffbe6, 0 2px 8px rgba(3,91,188,0.08);
+  transition: background 0.3s, color 0.3s, box-shadow 0.3s;
 }
 
 .suggestion-icon {

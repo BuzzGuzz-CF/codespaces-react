@@ -1,5 +1,5 @@
 import './App.css';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from './lib/supabase';
 
 // Generate time slots for 8 AM to 6 PM in 4 slots of 2.5 hours each
@@ -61,7 +61,7 @@ function App() {
   const [activeTab, setActiveTab] = useState('parking');
   const [selectedDate, setSelectedDate] = useState(NEXT_7_DAYS[0]);
   const [showLandingPage, setShowLandingPage] = useState(true);
-  const [suggestedPark, setSuggestedPark] = useState(null);
+  // Remove suggestedPark state, use useMemo for real-time suggestion
   const [loading, setLoading] = useState(true);
   const [bookingForm, setBookingForm] = useState({
     isOpen: false,
@@ -197,8 +197,6 @@ function App() {
   };
 
   const handleParkingClick = () => {
-    const best = getBestCarPark();
-    setSuggestedPark(best);
     setShowLandingPage(false);
     setActiveTab('parking');
   };
@@ -210,7 +208,6 @@ function App() {
 
   const goBackToLanding = () => {
     setShowLandingPage(true);
-    setSuggestedPark(null);
   };
 
   const registerEntry = async (parkId) => {
@@ -339,6 +336,12 @@ function App() {
     );
   }
 
+  // Real-time suggested park (best car park) using useMemo
+  const suggestedPark = useMemo(() => {
+    if (activeTab !== 'parking') return null;
+    return getBestCarPark();
+  }, [carParks, activeTab]);
+
   return (
     <div className="App">
       {/* Landing Page */}
@@ -347,14 +350,12 @@ function App() {
           <div className="landing-content">
             <h1 className="landing-title">🅿️ Card Factory Parking Assistant</h1>
             <p className="landing-subtitle">Where would you like to go today?</p>
-            
             <div className="landing-options">
               <button className="landing-option parking-option" onClick={handleParkingClick}>
                 <div className="option-icon">🚗</div>
                 <div className="option-title">I Want to Park</div>
                 <div className="option-description">Find and manage parking spaces</div>
               </button>
-              
               <button className="landing-option ev-option" onClick={handleEVClick}>
                 <div className="option-icon">⚡</div>
                 <div className="option-title">I Want to Charge</div>
@@ -371,11 +372,9 @@ function App() {
               <h1>🅿️ Card Factory Parking Assistant</h1>
               <button className="btn-back" onClick={goBackToLanding}>← Back to Home</button>
             </div>
-            
             {/* Suggestion Banner */}
-
             {suggestedPark && activeTab === 'parking' && (
-              <div className="suggestion-banner">
+              <div className="suggestion-banner standout-banner">
                 <span className="suggestion-icon">✨</span>
                 <span className="suggestion-text">
                   We recommend <strong>{suggestedPark.name}</strong> - it has the most available spaces ({suggestedPark.available_spaces}/{suggestedPark.total_spaces})
