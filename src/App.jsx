@@ -182,17 +182,20 @@ function App() {
 
   // Find the best car park based on availability
   const getBestCarPark = () => {
-    if (carParks.length === 0) return null;
-    let bestPark = carParks[0];
-    let maxAvailable = carParks[0].available_spaces;
-    
+    if (!Array.isArray(carParks) || carParks.length === 0) return null;
+    let bestPark = null;
+    let maxAvailable = -1;
     carParks.forEach(park => {
-      if (park.available_spaces > maxAvailable) {
+      if (
+        typeof park === 'object' &&
+        park !== null &&
+        typeof park.available_spaces === 'number' &&
+        park.available_spaces > maxAvailable
+      ) {
         maxAvailable = park.available_spaces;
         bestPark = park;
       }
     });
-    
     return bestPark;
   };
 
@@ -339,7 +342,9 @@ function App() {
   // Real-time suggested park (best car park) using useMemo
   const suggestedPark = useMemo(() => {
     if (activeTab !== 'parking') return null;
-    return getBestCarPark();
+    const best = getBestCarPark();
+    if (!best || typeof best !== 'object') return null;
+    return best;
   }, [carParks, activeTab]);
 
   return (
