@@ -111,43 +111,44 @@ function App() {
         setChargingSpaces(spaces || []);
 
         setLoading(false);
+        console.log('Data loaded successfully. Car parks:', parks, 'Bookings:', bookings);
 
-        // Subscribe to real-time updates
-        const carParksSub = supabase
-          .from('car_parks')
-          .on('*', payload => {
-            if (payload.eventType === 'UPDATE') {
-              setCarParks(parks => parks.map(p => p.id === payload.new.id ? payload.new : p));
+        // Subscribe to real-time updates using the correct Supabase v2 API
+        const channel = supabase.channel('schema-db-changes')
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'car_parks'
+            },
+            (payload) => {
+              console.log('Real-time update - car_parks:', payload);
+              setCarParks(parks => parks.map(p => p.id === payload.new?.id ? payload.new : p));
             }
-          })
-          .subscribe();
-
-        const sessionsSub = supabase
-          .from('parking_sessions')
-          .on('*', payload => {
-            if (payload.eventType === 'INSERT') {
-              setParkingSessions(s => [...s, payload.new]);
-            } else if (payload.eventType === 'UPDATE') {
-              setParkingSessions(s => s.map(x => x.id === payload.new.id ? payload.new : x));
+          )
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'charging_bookings'
+            },
+            (payload) => {
+              console.log('Real-time update - charging_bookings:', payload);
+              if (payload.eventType === 'INSERT') {
+                setChargingBookings(b => [...b, payload.new]);
+              } else if (payload.eventType === 'DELETE') {
+                setChargingBookings(b => b.filter(x => x.id !== payload.old.id));
+              }
             }
-          })
-          .subscribe();
-
-        const bookingsSub = supabase
-          .from('charging_bookings')
-          .on('*', payload => {
-            if (payload.eventType === 'INSERT') {
-              setChargingBookings(b => [...b, payload.new]);
-            } else if (payload.eventType === 'DELETE') {
-              setChargingBookings(b => b.filter(x => x.id !== payload.old.id));
-            }
-          })
-          .subscribe();
+          )
+          .subscribe((status) => {
+            console.log('Subscription status:', status);
+          });
 
         return () => {
-          supabase.removeSubscription(carParksSub);
-          supabase.removeSubscription(sessionsSub);
-          supabase.removeSubscription(bookingsSub);
+          supabase.removeChannel(channel);
         };
       } catch (error) {
         console.error('Error loading data:', error);
