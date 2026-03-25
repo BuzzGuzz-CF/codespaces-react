@@ -1,5 +1,6 @@
 import './App.css';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from './lib/supabase';
 
 // Generate time slots for 8 AM to 6 PM in 4 slots of 2.5 hours each
 const generateTimeSlots = () => {
@@ -53,15 +54,15 @@ const initializeChargingSpaces = (count) => {
 };
 
 function App() {
-  const [carParks, setCarParks] = useState([
-    { id: 1, name: 'Century House', totalSpaces: 10, availableSpaces: 10, chargingSpaces: initializeChargingSpaces(4) },
-    { id: 2, name: 'Enterprise House', totalSpaces: 15, availableSpaces: 15, chargingSpaces: [] },
-    { id: 3, name: 'Gate 5', totalSpaces: 8, availableSpaces: 8, chargingSpaces: initializeChargingSpaces(2) },
-  ]);
+  const [carParks, setCarParks] = useState([]);
+  const [chargingSpaces, setChargingSpaces] = useState([]);
+  const [chargingBookings, setChargingBookings] = useState([]);
+  const [parkingSessions, setParkingSessions] = useState([]);
   const [activeTab, setActiveTab] = useState('parking');
   const [selectedDate, setSelectedDate] = useState(NEXT_7_DAYS[0]);
   const [showLandingPage, setShowLandingPage] = useState(true);
   const [suggestedPark, setSuggestedPark] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [bookingForm, setBookingForm] = useState({
     isOpen: false,
     parkId: null,
@@ -72,14 +73,100 @@ function App() {
     carReg: ''
   });
 
+  // Load car parks and subscriptions
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        // Fetch car parks
+        const { data: parks, error: parksError } = await supabase
+          .from('car_parks')
+          .select('*');
+        
+        if (parksError) throw parksError;
+        setCarParks(parks || []);
+
+        // Fetch parking sessions
+        const { data: sessions, error: sessionsError } = await supabase
+          .from('parking_sessions')
+          .select('*')
+          .is('check_out_time', null); // Only active sessions
+        
+        if (sessionsError) throw sessionsError;
+        setParkingSessions(sessions || []);
+
+        // Fetch charging bookings
+        const { data: bookings, error: bookingsError } = await supabase
+          .from('charging_bookings')
+          .select('*');
+        
+        if (bookingsError) throw bookingsError;
+        setChargingBookings(bookings || []);
+
+        // Fetch charging spaces
+        const { data: spaces, error: spacesError } = await supabase
+          .from('charging_spaces')
+          .select('*');
+        
+        if (spacesError) throw spacesError;
+        setChargingSpaces(spaces || []);
+
+        setLoading(false);
+
+        // Subscribe to real-time updates
+        const carParksSub = supabase
+          .from('car_parks')
+          .on('*', payload => {
+            if (payload.eventType === 'UPDATE') {
+              setCarParks(parks => parks.map(p => p.id === payload.new.id ? payload.new : p));
+            }
+          })
+          .subscribe();
+
+        const sessionsSub = supabase
+          .from('parking_sessions')
+          .on('*', payload => {
+            if (payload.eventType === 'INSERT') {
+              setParkingSessions(s => [...s, payload.new]);
+            } else if (payload.eventType === 'UPDATE') {
+              setParkingSessions(s => s.map(x => x.id === payload.new.id ? payload.new : x));
+            }
+          })
+          .subscribe();
+
+        const bookingsSub = supabase
+          .from('charging_bookings')
+          .on('*', payload => {
+            if (payload.eventType === 'INSERT') {
+              setChargingBookings(b => [...b, payload.new]);
+            } else if (payload.eventType === 'DELETE') {
+              setChargingBookings(b => b.filter(x => x.id !== payload.old.id));
+            }
+          })
+          .subscribe();
+
+        return () => {
+          supabase.removeSubscription(carParksSub);
+          supabase.removeSubscription(sessionsSub);
+          supabase.removeSubscription(bookingsSub);
+        };
+      } catch (error) {
+        console.error('Error loading data:', error);
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
   // Find the best car park based on availability
   const getBestCarPark = () => {
+    if (carParks.length === 0) return null;
     let bestPark = carParks[0];
-    let maxAvailable = carParks[0].availableSpaces;
+    let maxAvailable = carParks[0].available_spaces;
     
     carParks.forEach(park => {
-      if (park.availableSpaces > maxAvailable) {
-        maxAvailable = park.availableSpaces;
+      if (park.available_spaces > maxAvailable) {
+        maxAvailable = park.available_spaces;
         bestPark = park;
       }
     });
@@ -104,40 +191,61 @@ function App() {
     setSuggestedPark(null);
   };
 
-  const registerEntry = (parkId) => {
-    setCarParks(carParks.map(park => 
-      park.id === parkId && park.availableSpaces > 0
-        ? { ...park, availableSpaces: park.availableSpaces - 1 }
-        : park
-    ));
+  const registerEntry = async (parkId) => {
+    const park = carParks.find(p => p.id === parkId);
+    if (!park || park.available_spaces <= 0) {
+      alert('No spaces available');
+      return;
+    }
+
+    const { error: parkError } = await supabase
+      .from('car_parks')
+      .update({ available_spaces: park.available_spaces - 1, updated_at: new Date() })
+      .eq('id', parkId);
+
+    if (parkError) {
+      alert('Error registering entry: ' + parkError.message);
+      return;
+    }
+
+    const { error: sessionError } = await supabase
+      .from('parking_sessions')
+      .insert([{
+        car_park_id: parkId,
+        user_name: 'User ' + Math.random().toString(36).substring(7),
+        car_reg: 'REG' + Math.random().toString(36).substring(7).toUpperCase()
+      }]);
+
+    if (sessionError) {
+      alert('Error creating session: ' + sessionError.message);
+    }
   };
 
-  const registerExit = (parkId) => {
-    setCarParks(carParks.map(park => 
-      park.id === parkId && park.availableSpaces < park.totalSpaces
-        ? { ...park, availableSpaces: park.availableSpaces + 1 }
-        : park
-    ));
-  };
+  const registerExit = async (parkId) => {
+    const park = carParks.find(p => p.id === parkId);
+    if (!park || park.available_spaces >= park.total_spaces) {
+      alert('No active sessions');
+      return;
+    }
 
-  const resetPark = (parkId) => {
-    setCarParks(carParks.map(park => 
-      park.id === parkId
-        ? { ...park, availableSpaces: park.totalSpaces }
-        : park
-    ));
+    const { error } = await supabase
+      .from('car_parks')
+      .update({ available_spaces: park.available_spaces + 1, updated_at: new Date() })
+      .eq('id', parkId);
+
+    if (error) {
+      alert('Error registering exit: ' + error.message);
+    }
   };
 
   const toggleChargingBooking = (parkId, spaceId, date, timeSlot) => {
-    const park = carParks.find(p => p.id === parkId);
-    const space = park.chargingSpaces.find(s => s.id === spaceId);
-    const booking = space.bookings[date][timeSlot];
+    const booking = chargingBookings.find(
+      b => b.charging_space_id === spaceId && b.booking_date === date && b.time_slot === timeSlot
+    );
 
     if (booking) {
-      // Cancel booking
-      cancelBooking(parkId, spaceId, date, timeSlot);
+      cancelBooking(booking.id);
     } else {
-      // Open booking form
       setBookingForm({
         isOpen: true,
         parkId,
@@ -150,61 +258,41 @@ function App() {
     }
   };
 
-  const submitBooking = () => {
-    const { parkId, spaceId, date, timeSlot, name, carReg } = bookingForm;
+  const submitBooking = async () => {
+    const { spaceId, date, timeSlot, name, carReg } = bookingForm;
 
     if (!name.trim() || !carReg.trim()) {
       alert('Please enter both name and car registration');
       return;
     }
 
-    setCarParks(carParks.map(park =>
-      park.id === parkId
-        ? {
-            ...park,
-            chargingSpaces: park.chargingSpaces.map(space =>
-              space.id === spaceId
-                ? {
-                    ...space,
-                    bookings: {
-                      ...space.bookings,
-                      [date]: {
-                        ...space.bookings[date],
-                        [timeSlot]: { name: name.trim(), carReg: carReg.trim() }
-                      }
-                    }
-                  }
-                : space
-            )
-          }
-        : park
-    ));
+    const { error } = await supabase
+      .from('charging_bookings')
+      .insert([{
+        charging_space_id: spaceId,
+        booking_date: date,
+        time_slot: timeSlot,
+        user_name: name.trim(),
+        car_reg: carReg.trim()
+      }]);
+
+    if (error) {
+      alert('Error creating booking: ' + error.message);
+      return;
+    }
 
     closeBookingForm();
   };
 
-  const cancelBooking = (parkId, spaceId, date, timeSlot) => {
-    setCarParks(carParks.map(park =>
-      park.id === parkId
-        ? {
-            ...park,
-            chargingSpaces: park.chargingSpaces.map(space =>
-              space.id === spaceId
-                ? {
-                    ...space,
-                    bookings: {
-                      ...space.bookings,
-                      [date]: {
-                        ...space.bookings[date],
-                        [timeSlot]: null
-                      }
-                    }
-                  }
-                : space
-            )
-          }
-        : park
-    ));
+  const cancelBooking = async (bookingId) => {
+    const { error } = await supabase
+      .from('charging_bookings')
+      .delete()
+      .eq('id', bookingId);
+
+    if (error) {
+      alert('Error cancelling booking: ' + error.message);
+    }
   };
 
   const closeBookingForm = () => {
@@ -218,6 +306,16 @@ function App() {
       carReg: ''
     });
   };
+
+  if (loading) {
+    return (
+      <div className="App">
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+          <p>Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="App">
@@ -284,20 +382,20 @@ function App() {
             <p className="subtitle">Track and manage available parking spaces</p>
             <div className="parks-container">
               {carParks.map(park => {
-                const occupancyPercentage = ((park.totalSpaces - park.availableSpaces) / park.totalSpaces) * 100;
-                const isFull = park.availableSpaces === 0;
+                const occupancyPercentage = ((park.total_spaces - park.available_spaces) / park.total_spaces) * 100;
+                const isFull = park.available_spaces === 0;
                 
                 return (
                   <div key={park.id} className={`park-card ${isFull ? 'full' : ''}`}>
                     <h2>{park.name}</h2>
                     <div className="space-info">
                       <div className="available">
-                        <span className="number">{park.availableSpaces}</span>
+                        <span className="number">{park.available_spaces}</span>
                         <span className="label">Available Spaces</span>
                       </div>
                       <div className="divider">of</div>
                       <div className="total">
-                        <span className="number">{park.totalSpaces}</span>
+                        <span className="number">{park.total_spaces}</span>
                         <span className="label">Total Spaces</span>
                       </div>
                     </div>
@@ -321,9 +419,9 @@ function App() {
                       <button 
                         className="btn-exit"
                         onClick={() => registerExit(park.id)}
-                        disabled={park.availableSpaces === park.totalSpaces}
+                        disabled={park.available_spaces === park.total_spaces}
                       >
-                        {park.availableSpaces === park.totalSpaces ? '✓ EMPTY' : '➖ Exit'}
+                        {park.available_spaces === park.total_spaces ? '✓ EMPTY' : '➖ Exit'}
                       </button>
                     </div>
                   </div>
@@ -356,49 +454,56 @@ function App() {
             </div>
 
             <div className="charging-container">
-              {carParks.map(park => (
-                <div key={park.id} className="charging-park">
-                  <div className="charging-park-header">
-                    <h2>{park.name}</h2>
-                    <span className="charging-count">({park.chargingSpaces.length} spaces)</span>
-                  </div>
+              {carParks.map(park => {
+                const parkChargingSpaces = chargingSpaces.filter(s => s.car_park_id === park.id);
+                return (
+                  <div key={park.id} className="charging-park">
+                    <div className="charging-park-header">
+                      <h2>{park.name}</h2>
+                      <span className="charging-count">({parkChargingSpaces.length} spaces)</span>
+                    </div>
 
-                  <div className="charging-spaces">
-                    {park.chargingSpaces.map(space => (
-                      <div key={space.id} className="charging-space">
-                        <h4>Space {space.id}</h4>
-                        <div className="time-slots">
-                          {TIME_SLOTS.map(slot => {
-                            const booking = space.bookings[selectedDate][slot];
-                            return (
-                              <div
-                                key={slot}
-                                className={`time-slot ${booking ? 'booked' : 'available'}`}
-                                onClick={() => toggleChargingBooking(park.id, space.id, selectedDate, slot)}
-                              >
-                                {booking ? (
-                                  <div className="booking-details">
-                                    <div className="booking-time">{slot}</div>
-                                    <div className="booking-info">
-                                      <div className="booking-name">{booking.name}</div>
-                                      <div className="booking-reg">{booking.carReg}</div>
+                    <div className="charging-spaces">
+                      {parkChargingSpaces.map(space => (
+                        <div key={space.id} className="charging-space">
+                          <h4>Space {space.space_number}</h4>
+                          <div className="time-slots">
+                            {TIME_SLOTS.map(slot => {
+                              const booking = chargingBookings.find(
+                                b => b.charging_space_id === space.id && 
+                                     b.booking_date === selectedDate && 
+                                     b.time_slot === slot
+                              );
+                              return (
+                                <div
+                                  key={slot}
+                                  className={`time-slot ${booking ? 'booked' : 'available'}`}
+                                  onClick={() => toggleChargingBooking(park.id, space.id, selectedDate, slot)}
+                                >
+                                  {booking ? (
+                                    <div className="booking-details">
+                                      <div className="booking-time">{slot}</div>
+                                      <div className="booking-info">
+                                        <div className="booking-name">{booking.user_name}</div>
+                                        <div className="booking-reg">{booking.car_reg}</div>
+                                      </div>
                                     </div>
-                                  </div>
-                                ) : (
-                                  <div className="available-slot">
-                                    <span className="slot-time">{slot}</span>
-                                    <span className="slot-status">○</span>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                                  ) : (
+                                    <div className="available-slot">
+                                      <span className="slot-time">{slot}</span>
+                                      <span className="slot-status">○</span>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
